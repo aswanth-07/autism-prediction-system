@@ -51,10 +51,44 @@ relation_map = {
     "Self": 0.2073, "Parent": 0.1538, "Relative": 0.1538,
     "Health care professional": 0.1538, "Others": 0.1538,
 }
+
+# Replace the existing region_map definition with the new country-based mapping
 region_map = {
-    "Africa": 0.1875, "Asia": 0.0612, "Caribbean": 0.5000, "Central Asia": 0.3000,
-    "Europe": 0.2470, "Middle East": 0.0909, "North America": 0.4341,
-    "Oceania": 0.0690, "Other": 0.1364, "South America": 0.1250,
+    'United States': 'North America', 'Canada': 'North America', 'Mexico': 'North America',
+    'Nicaragua': 'North America', 'AmericanSamoa': 'North America', 'Bahamas': 'North America',
+    'Brazil': 'South America', 'Argentina': 'South America', 'Bolivia': 'South America',
+    'United Kingdom': 'Europe', 'Austria': 'Europe', 'Ukraine': 'Europe',
+    'France': 'Europe', 'Netherlands': 'Europe', 'Italy': 'Europe',
+    'Ireland': 'Europe', 'Russia': 'Europe', 'Serbia': 'Europe',
+    'Sweden': 'Europe', 'Iceland': 'Europe', 'Germany': 'Europe',
+    'Spain': 'Europe', 'Czech Republic': 'Europe', 'Romania': 'Europe',
+    'Cyprus': 'Europe', 'Belgium': 'Europe',
+    'Jordan': 'Middle East', 'United Arab Emirates': 'Middle East', 'Iraq': 'Middle East',
+    'Oman': 'Middle East', 'Saudi Arabia': 'Middle East', 'Iran': 'Middle East',
+    'Azerbaijan': 'Middle East', 'Armenia': 'Middle East',
+    'India': 'Asia', 'Malaysia': 'Asia', 'Vietnam': 'Asia',
+    'Sri Lanka': 'Asia', 'Hong Kong': 'Asia', 'China': 'Asia',
+    'Pakistan': 'Asia', 'Japan': 'Asia', 'Bangladesh': 'Asia',
+    'South Africa': 'Africa', 'Egypt': 'Africa', 'Ethiopia': 'Africa',
+    'Angola': 'Africa', 'Sierra Leone': 'Africa', 'Niger': 'Africa',
+    'Burundi': 'Africa',
+    'New Zealand': 'Oceania', 'Australia': 'Oceania', 'Tonga': 'Oceania',
+    'Kazakhstan': 'Central Asia',
+    'Aruba': 'Caribbean'
+}
+
+# Add this new dictionary for region frequencies
+region_frequencies = {
+    'Africa': 0.1875,
+    'Asia': 0.0612,
+    'Caribbean': 0.5000,
+    'Central Asia': 0.3000,
+    'Europe': 0.2470,
+    'Middle East': 0.0909,
+    'North America': 0.4341,
+    'Oceania': 0.0690,
+    'South America': 0.1250,
+    'Other': 0.1364
 }
 
 aq_questions_config = {
@@ -117,11 +151,10 @@ user_inputs['used_app_before'] = st.radio("Used a screening app like this before
 placeholder_text = "-- Select --"
 ethnicity_options = [placeholder_text] + list(ethnicity_map.keys())
 relation_options = [placeholder_text] + list(relation_map.keys())
-region_options = [placeholder_text] + list(region_map.keys())
 
-user_inputs['ethnicity'] = st.selectbox("Ethnicity:", options=ethnicity_options, index=0)
-user_inputs['relation'] = st.selectbox("Who is completing this screening?", options=relation_options, index=0)
-user_inputs['region'] = st.selectbox("Region of Residence:", options=region_options, index=0)
+# Modify the region selection part
+country_options = [placeholder_text] + sorted(list(region_map.keys()))
+selected_country = st.selectbox("Country of Residence:", options=country_options, index=0)
 
 # --- Submit Button and Prediction Logic ---
 st.markdown("---")
@@ -140,7 +173,7 @@ if submit_button:
     if user_inputs['used_app_before'] is None: missing_fields.append("Used App Before")
     if user_inputs['ethnicity'] == placeholder_text: missing_fields.append("Ethnicity")
     if user_inputs['relation'] == placeholder_text: missing_fields.append("Relation")
-    if user_inputs['region'] == placeholder_text: missing_fields.append("Region")
+    if selected_country == placeholder_text: missing_fields.append("Country")
 
     if missing_fields:
         st.error(f"Please fill in all fields. Missing: {', '.join(missing_fields)}")
@@ -174,7 +207,11 @@ if submit_button:
             # Get mapped float values for dropdowns (these correspond to the '_freq' features)
             ethnicity_val = ethnicity_map[user_inputs['ethnicity']]
             relation_val = relation_map[user_inputs['relation']]
-            region_val = region_map[user_inputs['region']]
+            
+            # Update how region_val is calculated
+            if selected_country != placeholder_text:
+                region = region_map[selected_country]
+                region_val = region_frequencies[region]
 
             # --- Create Feature List (ORDER MUST MATCH EXPECTED_FEATURE_NAMES) ---
             features_in_order = [
@@ -205,27 +242,44 @@ if submit_button:
             prediction = model.predict(input_df)
             predicted_class = prediction[0]
 
-            # --- Confidence Score (using DataFrame) ---
-            confidence_score_text = "N/A"
+            # --- Confidence Score Alternatives ---
+            confidence_metrics = {}
+            
+            if hasattr(model, 'decision_function'):
+                try:
+                    # Get distance from decision boundary
+                    decision_scores = model.decision_function(input_df)
+                    # Normalize the score to a 0-1 scale using sigmoid function
+                    confidence = 1 / (1 + np.exp(-abs(decision_scores[0])))
+                    confidence_metrics['Distance-Based Score'] = f"{confidence:.1%}"
+                except Exception as dec_e:
+                    print(f"Error calculating decision function: {dec_e}")
+                    confidence_metrics['Distance-Based Score'] = "Calculation Error"
+            
             if hasattr(model, 'predict_proba'):
                 try:
                     probabilities = model.predict_proba(input_df)
-                    confidence = probabilities[0][predicted_class]
-                    confidence_score_text = f"{confidence:.1%}"
+                    prob_confidence = probabilities[0][predicted_class]
+                    confidence_metrics['Probability Score'] = f"{prob_confidence:.1%}"
                 except Exception as proba_e:
                     print(f"Error calculating probability: {proba_e}")
-                    confidence_score_text = "Calculation Error"
-            else:
-                confidence_score_text = "N/A (Model type doesn't support probability)"
+                    confidence_metrics['Probability Score'] = "Calculation Error"
 
-            # --- Display Results ---
+            # --- Display Results with Multiple Metrics ---
             st.subheader("Screening Outcome")
             if predicted_class == 1:
                 st.warning("Result: Potential indicators of ASD detected based on screening answers.")
             else:
                 st.success("Result: Does not show significant indicators of ASD based on this screening.")
 
-            st.info(f"Model Confidence: {confidence_score_text}")
+            # Display available confidence metrics
+            st.subheader("Model Confidence Metrics")
+            for metric_name, value in confidence_metrics.items():
+                st.info(f"{metric_name}: {value}")
+            
+            if not confidence_metrics:
+                st.info("No confidence metrics available for this model type")
+
             st.caption("Disclaimer: This is a preliminary screening tool based on a machine learning model and does not substitute for a professional diagnosis. Consult with a qualified healthcare provider for any health concerns.")
 
         except Exception as e:
