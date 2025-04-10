@@ -151,6 +151,8 @@ user_inputs['used_app_before'] = st.radio("Used a screening app like this before
 placeholder_text = "-- Select --"
 ethnicity_options = [placeholder_text] + list(ethnicity_map.keys())
 relation_options = [placeholder_text] + list(relation_map.keys())
+user_inputs['ethnicity'] = st.selectbox("Ethnicity:", options=ethnicity_options, index=0)
+user_inputs['relation'] = st.selectbox("Your relation to the person being screened:", options=relation_options, index=0)
 
 # Modify the region selection part
 country_options = [placeholder_text] + sorted(list(region_map.keys()))
